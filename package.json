@@ -1,0 +1,14 @@
+{
+  "name": "org-verify-bot",
+  "version": "1.0.0",
+  "description": "Looksmax Verification Bot",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "node-fetch": "^3.3.2"
+  }
+}
