@@ -51,7 +51,7 @@ client.once('ready', async () => {
       .setDescription('Start verification')
       .addStringOption(option =>
         option.setName('url')
-          .setDescription('Full Looksmax profile URL')
+          .setDescription('Full profile URL')
           .setRequired(true)
       ),
     new SlashCommandBuilder()
@@ -79,7 +79,9 @@ client.on('interactionCreate', async interaction => {
   const verified = load(VERIFIED_FILE);
   const pending = load(PENDING_FILE);
 
-  // START VERIFY
+  // =========================
+  // VERIFY COMMAND
+  // =========================
   if (interaction.commandName === 'verify') {
 
     const url = interaction.options.getString('url');
@@ -89,7 +91,7 @@ client.on('interactionCreate', async interaction => {
 
     const match = url.match(/members\/(.+)\.(\d+)\//);
     if (!match)
-      return interaction.reply({ content: "❌ Could not extract username.", ephemeral: true });
+      return interaction.reply({ content: "❌ Could not extract data.", ephemeral: true });
 
     const username = match[1];
     const memberId = match[2];
@@ -127,7 +129,9 @@ After saving, type:
     });
   }
 
-  // CONFIRM VERIFY
+  // =========================
+  // CONFIRM COMMAND
+  // =========================
   if (interaction.commandName === 'confirm') {
 
     const discordId = interaction.user.id;
@@ -145,16 +149,18 @@ After saving, type:
       const page = await browser.newPage();
       await page.goto(entry.url, { waitUntil: 'networkidle2' });
 
-      const pageTitle = await page.title();
+      // Get visible text (matches what user sees)
+      const pageText = await page.evaluate(() => document.body.innerText);
 
-      await browser.close();
-
-      if (!pageTitle.includes(entry.code) || !pageTitle.includes("Normie Hate Member")) {
+      if (!pageText.includes(entry.code) || !pageText.includes("Normie Hate Member")) {
+        await browser.close();
         return interaction.reply({
           content: "❌ Required title not found. Make sure it matches exactly.",
           ephemeral: true
         });
       }
+
+      await browser.close();
 
       verified.push({
         discordId,
@@ -177,7 +183,7 @@ Member ID: ${entry.memberId}`
         );
       }
 
-      await interaction.reply({
+      return interaction.reply({
         content: "✅ Successfully verified!",
         ephemeral: true
       });
@@ -193,3 +199,4 @@ Member ID: ${entry.memberId}`
 });
 
 client.login(TOKEN);
+
