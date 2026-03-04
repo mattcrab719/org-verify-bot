@@ -9,7 +9,7 @@ import {
   ButtonStyle
 } from 'discord.js';
 
-import fetch from 'node-fetch';
+import puppeteer from 'puppeteer';
 import fs from 'fs';
 
 const client = new Client({
@@ -65,42 +65,7 @@ client.once('ready', async () => {
   console.log("Commands registered.");
 });
 
-
-// 🔔 Welcome Message
-client.on('guildMemberAdd', async (member) => {
-  const channel = member.guild.channels.cache.get(VERIFY_CHANNEL_ID);
-  if (!channel) return;
-
-  channel.send(
-`👋 Welcome ${member}!
-
-To access the server:
-
-1️⃣ Go to your Looksmax profile.
-2️⃣ Open your profile page.
-3️⃣ Copy your FULL profile link.
-
-Example:
-https://looksmax.org/members/yourname.123456/
-
-Then type:
-/verify <paste link>`
-  );
-});
-
-
 client.on('interactionCreate', async interaction => {
-
-  // Button interaction
-  if (interaction.isButton()) {
-    if (interaction.customId.startsWith("copy_")) {
-      const code = interaction.customId.split("_")[1];
-      return interaction.reply({
-        content: `📋 Copy this code:\n\`\`\`\nNormie Hate Member | ${code}\n\`\`\``,
-        ephemeral: true
-      });
-    }
-  }
 
   if (!interaction.isChatInputCommand()) return;
 
@@ -114,16 +79,17 @@ client.on('interactionCreate', async interaction => {
   const verified = load(VERIFIED_FILE);
   const pending = load(PENDING_FILE);
 
+  // START VERIFY
   if (interaction.commandName === 'verify') {
 
     const url = interaction.options.getString('url');
 
     if (!url.startsWith("https://looksmax.org/members/"))
-      return interaction.reply({ content: "❌ Invalid Looksmax profile URL.", ephemeral: true });
+      return interaction.reply({ content: "❌ Invalid profile URL.", ephemeral: true });
 
     const match = url.match(/members\/(.+)\.(\d+)\//);
     if (!match)
-      return interaction.reply({ content: "❌ Could not extract username and ID.", ephemeral: true });
+      return interaction.reply({ content: "❌ Could not extract username.", ephemeral: true });
 
     const username = match[1];
     const memberId = match[2];
@@ -131,9 +97,6 @@ client.on('interactionCreate', async interaction => {
 
     if (verified.find(v => v.discordId === discordId))
       return interaction.reply({ content: "❌ You are already verified.", ephemeral: true });
-
-    if (verified.find(v => v.memberId === memberId))
-      return interaction.reply({ content: "❌ That Looksmax account is already linked.", ephemeral: true });
 
     const code = generateCode();
 
@@ -149,40 +112,49 @@ client.on('interactionCreate', async interaction => {
 
     return interaction.reply({
       content:
-`🛡️ **Ownership Verification Started**
+`🛡️ **Verification Started**
 
-Set your Looksmax custom title to:
+Set your custom title to:
 
 \`\`\`
 Normie Hate Member | ${code}
 \`\`\`
 
-Press the button below to copy it easily.
-
-After saving your profile, type:
+After saving, type:
 /confirm`,
       components: [row],
       ephemeral: true
     });
   }
 
+  // CONFIRM VERIFY
   if (interaction.commandName === 'confirm') {
 
     const discordId = interaction.user.id;
     const entry = pending.find(p => p.discordId === discordId);
 
     if (!entry)
-      return interaction.reply({ content: "❌ No pending verification found.", ephemeral: true });
+      return interaction.reply({ content: "❌ No pending verification.", ephemeral: true });
 
     try {
-      const response = await fetch(entry.url);
-      const html = await response.text();
 
-      if (!html.includes(entry.code) || !html.includes("Normie Hate Member"))
+      const browser = await puppeteer.launch({
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+
+      const page = await browser.newPage();
+      await page.goto(entry.url, { waitUntil: 'networkidle2' });
+
+      const pageTitle = await page.title();
+
+      await browser.close();
+
+      if (!pageTitle.includes(entry.code) || !pageTitle.includes("Normie Hate Member")) {
         return interaction.reply({
           content: "❌ Required title not found. Make sure it matches exactly.",
           ephemeral: true
         });
+      }
 
       verified.push({
         discordId,
@@ -195,7 +167,6 @@ After saving your profile, type:
 
       await interaction.member.roles.add(VERIFIED_ROLE_ID);
 
-      // 📝 LOG CHANNEL
       const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
       if (logChannel) {
         logChannel.send(
@@ -207,21 +178,16 @@ Member ID: ${entry.memberId}`
       }
 
       await interaction.reply({
-        content: "✅ Ownership confirmed! You are now verified.",
+        content: "✅ Successfully verified!",
         ephemeral: true
       });
 
-      // 🧹 Delete the user's last verify message (if exists)
-      const messages = await interaction.channel.messages.fetch({ limit: 10 });
-      const userVerifyMessage = messages.find(m =>
-        m.author.id === discordId && m.content.includes("/verify")
-      );
-
-      if (userVerifyMessage) userVerifyMessage.delete().catch(() => {});
-
     } catch (err) {
       console.error(err);
-      return interaction.reply({ content: "⚠️ Error checking profile.", ephemeral: true });
+      return interaction.reply({
+        content: "⚠️ Error checking profile.",
+        ephemeral: true
+      });
     }
   }
 });
