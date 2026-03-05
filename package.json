@@ -1,12 +1,12 @@
 {
-  "name": "looksmax-bot",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "discord.js": "^14.14.1"
-  }
+"name":"looksmax-bot",
+"version":"1.0.0",
+"type":"module",
+"main":"index.js",
+"scripts":{
+"start":"node index.js"
+},
+"dependencies":{
+"discord.js":"^14.14.1"
+}
 }
