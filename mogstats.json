@@ -1,1 +1,8 @@
-
+{
+  "123456789": {
+    "wins": 5,
+    "losses": 2,
+    "streak": 3,
+    "submissions": 7
+  }
+}
