@@ -1,485 +1,288 @@
-import {
-Client,
-GatewayIntentBits,
-EmbedBuilder,
-ActionRowBuilder,
-ButtonBuilder,
-ButtonStyle,
-SlashCommandBuilder,
-REST,
-Routes,
-Events,
-AttachmentBuilder
+import { 
+Client, 
+GatewayIntentBits, 
+EmbedBuilder, 
+ActionRowBuilder, 
+ButtonBuilder, 
+ButtonStyle 
 } from "discord.js"
 
 import fs from "fs"
 
-const TOKEN = process.env.TOKEN
-const CLIENT_ID = process.env.CLIENT_ID
-const GUILD_ID = process.env.GUILD_ID
+const TOKEN = "PUT_YOUR_TOKEN_HERE"
 
-/* CHANNELS */
+const client = new Client({
+intents: [GatewayIntentBits.Guilds]
+})
 
-const RATE_SUBMIT = "1479185567068717247"
-const RATE_POST = "1479185540963238050"
+let data = {}
+let battles = {}
+let cooldowns = {}
 
-const MOG_CHANNEL = "1473105456007479307"
-
-const PROGRAM_CREATE = "1479188457770324028"
-const PROGRAM_POST = "1479188564226084905"
-
-const LEADERBOARD_CHANNEL = "1479188874147270766"
-
-const STATS_CHANNEL = "1479190112821575680"
-
-const ANNOUNCE_CHANNEL = "1473125728676610181"
-
-/* DATABASE */
-
-let db = {
-ratings:{},
-mog:{},
-queue:[],
-programs:{},
-cooldowns:{}
-}
-
-if(fs.existsSync("db.json")){
-db = JSON.parse(fs.readFileSync("db.json"))
+if(fs.existsSync("data.json")){
+data = JSON.parse(fs.readFileSync("data.json"))
 }
 
 function save(){
-fs.writeFileSync("db.json",JSON.stringify(db,null,2))
+fs.writeFileSync("data.json", JSON.stringify(data,null,2))
 }
 
-/* CLIENT */
+function getUser(id){
 
-const client = new Client({
-intents:[
-GatewayIntentBits.Guilds,
-GatewayIntentBits.GuildMessages,
-GatewayIntentBits.MessageContent,
-GatewayIntentBits.GuildMessageReactions
-]
-})
+if(!data[id]){
 
-/* COMMANDS */
+data[id] = {
+rating:1000,
+wins:0,
+losses:0,
+streak:0,
+bestStreak:0,
+battles:0,
+program:false
+}
 
-const commands = [
+}
 
-new SlashCommandBuilder()
-.setName("rate")
-.setDescription("Submit yourself for rating")
-.addAttachmentOption(o=>o.setName("photo").setRequired(true)),
+return data[id]
 
-new SlashCommandBuilder()
-.setName("ratingleaderboard")
-.setDescription("Attractiveness leaderboard"),
+}
 
-new SlashCommandBuilder()
-.setName("mogleaderboard")
-.setDescription("Mog leaderboard"),
+client.once("ready",()=>{
 
-new SlashCommandBuilder()
-.setName("stats")
-.setDescription("Check stats")
-.addUserOption(o=>o.setName("user").setRequired(true)),
+console.log("Bot Ready")
 
-new SlashCommandBuilder()
-.setName("program")
-.setDescription("Create looksmax program")
-.addStringOption(o=>o.setName("name").setRequired(true))
-.addStringOption(o=>o.setName("description").setRequired(true))
-.addBooleanOption(o=>o.setName("approval").setRequired(true)),
-
-new SlashCommandBuilder()
-.setName("announcement")
-.setDescription("Admin announcement")
-.addStringOption(o=>o.setName("text").setRequired(true)),
-
-new SlashCommandBuilder()
-.setName("send")
-.setDescription("Send message")
-.addStringOption(o=>o.setName("text").setRequired(true))
-
-].map(c=>c.toJSON())
-
-client.once(Events.ClientReady, async ()=>{
-
-const rest = new REST({version:"10"}).setToken(TOKEN)
-
-await rest.put(
-Routes.applicationGuildCommands(CLIENT_ID,GUILD_ID),
-{body:commands}
-)
-
-console.log("Bot ready")
-
-startLeaderboardLoop()
+setInterval(updatePanels,30000)
 
 })
 
-/* RATING BUTTONS */
+client.on("interactionCreate", async interaction=>{
 
-function rateButtons(){
+if(!interaction.isChatInputCommand()) return
 
-return new ActionRowBuilder().addComponents(
+if(interaction.commandName === "battle"){
 
-new ButtonBuilder().setCustomId("LTN").setLabel("LTN").setStyle(ButtonStyle.Secondary),
-new ButtonBuilder().setCustomId("MTN").setLabel("MTN").setStyle(ButtonStyle.Secondary),
-new ButtonBuilder().setCustomId("HTN").setLabel("HTN").setStyle(ButtonStyle.Primary),
-new ButtonBuilder().setCustomId("CL").setLabel("CL").setStyle(ButtonStyle.Success),
-new ButtonBuilder().setCustomId("CHAD").setLabel("CHAD").setStyle(ButtonStyle.Danger)
+const user = interaction.options.getUser("user")
+const image1 = interaction.options.getString("image1")
+const image2 = interaction.options.getString("image2")
 
-)
+const now = Date.now()
+
+if(cooldowns[interaction.user.id] && now - cooldowns[interaction.user.id] < 300000){
+
+return interaction.reply({
+content:"Cooldown 5 minutes",
+ephemeral:true
+})
+
 }
 
-/* INTERACTIONS */
+cooldowns[interaction.user.id] = now
 
-client.on(Events.InteractionCreate, async i=>{
+const battleID = Date.now().toString()
 
-/* COMMANDS */
+battles[battleID] = {
 
-if(i.isChatInputCommand()){
+user1:interaction.user.id,
+user2:user.id,
+votes1:0,
+votes2:0,
+voters:[],
+finished:false
 
-/* RATE */
-
-if(i.commandName==="rate"){
-
-if(i.channel.id !== RATE_SUBMIT)
-return i.reply({content:"Use rating channel",ephemeral:true})
-
-const photo = i.options.getAttachment("photo")
+}
 
 const embed = new EmbedBuilder()
-.setTitle("Looksmax Rating")
-.setDescription(`${i.user}`)
-.setImage(photo.url)
 
-const ch = await client.channels.fetch(RATE_POST)
+.setTitle("MOG BATTLE")
 
-const msg = await ch.send({
+.setDescription(
+`<@${interaction.user.id}> VS <@${user.id}>`
+)
+
+.addFields(
+{name:"Player 1",value:`<@${interaction.user.id}>`,inline:true},
+{name:"Player 2",value:`<@${user.id}>`,inline:true}
+)
+
+.setImage(image1)
+
+const row = new ActionRowBuilder().addComponents(
+
+new ButtonBuilder()
+.setCustomId(`vote1_${battleID}`)
+.setLabel("Vote Player 1")
+.setStyle(ButtonStyle.Primary),
+
+new ButtonBuilder()
+.setCustomId(`vote2_${battleID}`)
+.setLabel("Vote Player 2")
+.setStyle(ButtonStyle.Danger)
+
+)
+
+await interaction.reply({
 embeds:[embed],
-components:[rateButtons()]
+components:[row]
 })
 
-db.ratings[msg.id] = {
-user:i.user.id,
-votes:{LTN:0,MTN:0,HTN:0,CL:0,CHAD:0},
-voters:[]
 }
 
-save()
+})
 
-i.reply({content:"Submitted",ephemeral:true})
+client.on("interactionCreate", async interaction=>{
 
-}
+if(!interaction.isButton()) return
 
-/* RATING LEADERBOARD */
+const id = interaction.customId.split("_")
 
-if(i.commandName==="ratingleaderboard"){
+const vote = id[0]
+const battleID = id[1]
 
-let scores={}
+const battle = battles[battleID]
 
-for(const r of Object.values(db.ratings)){
+if(!battle || battle.finished) return
 
-const best = Object.entries(r.votes).sort((a,b)=>b[1]-a[1])[0]
+if(battle.voters.includes(interaction.user.id)){
 
-if(!best) continue
-
-scores[r.user] ??=0
-
-scores[r.user]+=best[1]
+return interaction.reply({
+content:"You already voted",
+ephemeral:true
+})
 
 }
 
-let list = Object.entries(scores)
-.sort((a,b)=>b[1]-a[1])
-.slice(0,10)
+if(interaction.user.id === battle.user1 || interaction.user.id === battle.user2){
 
-let text=list.map((u,i)=>`#${i+1} <@${u[0]}> ${u[1]}`).join("\n")
-
-i.reply(text || "No data")
-
-}
-
-/* MOG LEADERBOARD */
-
-if(i.commandName==="mogleaderboard"){
-
-let list=Object.entries(db.mog)
-.sort((a,b)=>b[1].wins-a[1].wins)
-.slice(0,10)
-
-let text=list.map((u,i)=>
-`#${i+1} <@${u[0]}> W:${u[1].wins} L:${u[1].loss}`
-).join("\n")
-
-i.reply(text || "None")
+return interaction.reply({
+content:"Battlers cannot vote",
+ephemeral:true
+})
 
 }
 
-/* USER STATS */
+battle.voters.push(interaction.user.id)
 
-if(i.commandName==="stats"){
+if(vote === "vote1") battle.votes1++
+if(vote === "vote2") battle.votes2++
 
-const user=i.options.getUser("user")
+await interaction.reply({
+content:"Vote counted",
+ephemeral:true
+})
 
-const mog=db.mog[user.id] || {wins:0,loss:0}
+if(battle.votes1 + battle.votes2 >= 50){
 
-let ratings=Object.values(db.ratings).filter(r=>r.user===user.id).length
-
-const embed=new EmbedBuilder()
-.setTitle(`${user.username} Stats`)
-.addFields(
-{name:"Ratings Submitted",value:String(ratings)},
-{name:"Mog Wins",value:String(mog.wins)},
-{name:"Mog Losses",value:String(mog.loss)}
-)
-
-i.reply({embeds:[embed]})
+finishBattle(battleID)
 
 }
 
-/* PROGRAM */
+})
 
-if(i.commandName==="program"){
+async function finishBattle(id){
 
-if(i.channel.id!==PROGRAM_CREATE)
-return i.reply({content:"Use program channel",ephemeral:true})
+const battle = battles[id]
 
-const name=i.options.getString("name")
-const desc=i.options.getString("description")
-const approval=i.options.getBoolean("approval")
+battle.finished = true
 
-const id=Date.now()
+const u1 = getUser(battle.user1)
+const u2 = getUser(battle.user2)
 
-db.programs[id]={
-owner:i.user.id,
-name,
-desc,
-approval,
-members:[],
-rating:0,
-votes:0
-}
+let winner
+let loser
 
-save()
+if(battle.votes1 > battle.votes2){
 
-const embed=new EmbedBuilder()
-.setTitle(name)
-.setDescription(desc)
-.setFooter({text:`Owner ${i.user.tag}`})
+winner = u1
+loser = u2
 
-const row=new ActionRowBuilder().addComponents(
-new ButtonBuilder()
-.setCustomId(`join_${id}`)
-.setLabel("Join")
-.setStyle(ButtonStyle.Success)
-)
+u1.wins++
+u2.losses++
 
-const ch=await client.channels.fetch(PROGRAM_POST)
-
-ch.send({embeds:[embed],components:[row]})
-
-i.reply({content:"Program created",ephemeral:true})
-
-}
-
-/* ADMIN */
-
-if(i.commandName==="announcement"){
-
-if(!i.member.permissions.has("Administrator"))
-return i.reply({content:"Admin only",ephemeral:true})
-
-const text=i.options.getString("text")
-
-const ch=await client.channels.fetch(ANNOUNCE_CHANNEL)
-
-ch.send(`📢 ${text}`)
-
-i.reply({content:"Sent",ephemeral:true})
-
-}
-
-if(i.commandName==="send"){
-
-if(!i.member.permissions.has("Administrator"))
-return i.reply({content:"Admin only",ephemeral:true})
-
-const text=i.options.getString("text")
-
-i.channel.send(text)
-
-i.reply({content:"Sent",ephemeral:true})
-
-}
-
-}
-
-/* BUTTONS */
-
-if(i.isButton()){
-
-/* PROGRAM JOIN */
-
-if(i.customId.startsWith("join_")){
-
-const id=i.customId.split("_")[1]
-
-const p=db.programs[id]
-
-if(!p) return
-
-if(p.members.includes(i.user.id))
-return i.reply({content:"Already joined",ephemeral:true})
-
-if(p.approval){
-
-const owner=await client.users.fetch(p.owner)
-
-owner.send(`${i.user.tag} wants to join ${p.name}`)
-
-i.reply({content:"Request sent",ephemeral:true})
+u1.rating += 20
+u2.rating -= 20
 
 }else{
 
-p.members.push(i.user.id)
+winner = u2
+loser = u1
+
+u2.wins++
+u1.losses++
+
+u2.rating += 20
+u1.rating -= 20
+
+}
+
+winner.streak++
+loser.streak = 0
+
+if(winner.streak > winner.bestStreak){
+
+winner.bestStreak = winner.streak
+
+}
+
+u1.battles++
+u2.battles++
 
 save()
 
-i.reply({content:"Joined",ephemeral:true})
+try{
+
+const user1 = await client.users.fetch(battle.user1)
+const user2 = await client.users.fetch(battle.user2)
+
+user1.send(`Battle finished. Votes ${battle.votes1}-${battle.votes2}`)
+user2.send(`Battle finished. Votes ${battle.votes1}-${battle.votes2}`)
+
+}catch{}
 
 }
 
-}
+async function updatePanels(){
 
-/* RATING VOTES */
+const guild = client.guilds.cache.first()
 
-const rating=db.ratings[i.message.id]
+if(!guild) return
 
-if(rating){
+const channel = guild.channels.cache.find(c=>c.name==="leaderboards")
 
-if(rating.voters.includes(i.user.id))
-return i.reply({content:"Already voted",ephemeral:true})
+if(!channel) return
 
-rating.voters.push(i.user.id)
+const users = Object.entries(data)
 
-rating.votes[i.customId]++
+.sort((a,b)=>b[1].rating - a[1].rating)
 
-if(rating.voters.length>=50){
+.slice(0,10)
 
-const winner=Object.entries(rating.votes)
-.sort((a,b)=>b[1]-a[1])[0][0]
+let text=""
 
-const user=await client.users.fetch(rating.user)
+users.forEach((u,i)=>{
 
-user.send(`Your rating result: ${winner}`)
-
-}
-
-save()
-
-i.reply({content:`Voted ${i.customId}`,ephemeral:true})
-
-}
-
-}
+text += `${i+1}. <@${u[0]}> — ${u[1].rating}\n`
 
 })
 
-/* MOG BATTLES */
+const embed = new EmbedBuilder()
 
-client.on(Events.MessageCreate, async m=>{
+.setTitle("Top Players")
 
-if(m.author.bot) return
+.setDescription(text || "No players")
 
-if(m.channel.id!==MOG_CHANNEL) return
+const msgs = await channel.messages.fetch({limit:5})
 
-if(m.attachments.size===0) return
+const msg = msgs.find(m=>m.author.id === client.user.id)
 
-let now=Date.now()
+if(msg){
 
-if(db.cooldowns[m.author.id] && now-db.cooldowns[m.author.id] < 300000)
-return m.reply("5 minute cooldown")
+msg.edit({embeds:[embed]})
 
-db.cooldowns[m.author.id]=now
+}else{
 
-db.queue.push({
-user:m.author.id,
-photo:m.attachments.first().url
-})
-
-save()
-
-m.reply("Queued")
-
-if(db.queue.length>=2){
-
-const p1=db.queue.shift()
-const p2=db.queue.shift()
-
-const embed=new EmbedBuilder()
-.setTitle("Mog Battle")
-.setDescription(`<@${p1.user}> vs <@${p2.user}>`)
-.setImage(p1.photo)
-
-const embed2=new EmbedBuilder()
-.setImage(p2.photo)
-
-const msg=await m.channel.send({embeds:[embed,embed2]})
-
-await msg.react("⬅️")
-await msg.react("➡️")
-
-setTimeout(async()=>{
-
-const battle=await m.channel.messages.fetch(msg.id)
-
-const left=battle.reactions.cache.get("⬅️")?.count || 0
-const right=battle.reactions.cache.get("➡️")?.count || 0
-
-const winner=left>right?p1.user:p2.user
-const loser=left>right?p2.user:p1.user
-
-db.mog[winner] ??={wins:0,loss:0}
-db.mog[loser] ??={wins:0,loss:0}
-
-db.mog[winner].wins++
-db.mog[loser].loss++
-
-save()
-
-m.channel.send(`🏆 <@${winner}> wins the mog battle`)
-
-},10800000)
+channel.send({embeds:[embed]})
 
 }
-
-})
-
-/* AUTO GRAPHIC LEADERBOARDS */
-
-function startLeaderboardLoop(){
-
-setInterval(async()=>{
-
-const ch=await client.channels.fetch(LEADERBOARD_CHANNEL)
-
-let ratingTop=Object.entries(db.ratings).slice(0,5)
-let mogTop=Object.entries(db.mog).sort((a,b)=>b[1].wins-a[1].wins).slice(0,5)
-
-const embed=new EmbedBuilder()
-.setTitle("Server Leaderboards")
-.addFields(
-{name:"Top Moggers",value:mogTop.map((u,i)=>`#${i+1} <@${u[0]}> ${u[1].wins} wins`).join("\n") || "None"},
-{name:"Top Rated",value:ratingTop.map((u,i)=>`#${i+1} <@${u[1].user}>`).join("\n") || "None"}
-)
-
-ch.send({embeds:[embed]})
-
-},300000)
 
 }
 
